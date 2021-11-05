@@ -8,51 +8,63 @@ mod clusters;
 pub use clusters::{ClusterPool, Cluster};
 
 
-pub type ThreadIndex = usize;
-pub type ClusterIndex = usize;
+pub struct ThreadIndex(usize);
 
-pub type OpperationHandler<PoolItem, Parameters> = fn(ThreadIndex, &mut ClusterPool<PoolItem>, &mut Parameters);
-pub type SetupHandler<PoolItem, Parameters> = fn(&mut Cluster<PoolItem>, &mut Parameters);
+impl ThreadIndex {
+    pub fn value(&self) -> &usize { &self.0 }
+}
+
+pub type ThreadCallbackHandler<PoolItem, SharedData, LocalData> = fn(
+    &mut Cluster<PoolItem, SharedData, LocalData>, 
+    //&mut ClusterPool<PoolItem, SharedData, LocalData>
+);
+
+// pub type OpperationHandler<PoolItem, SharedData, LocalData> = 
+//     fn(&mut Cluster<PoolItem, SharedData, LocalData>);
+
+// pub type SetupHandler<PoolItem, SharedData, LocalData> 
+//     = fn(&mut Cluster<PoolItem, SharedData, LocalData>);
 
 
-pub struct ThreadPool<PoolItem, Parameters>
+pub struct ThreadPool<PoolItem, SharedData, LocalData>
     where   PoolItem: Default + Clone + Send +'static, 
-            Parameters: Send + 'static
+            SharedData: Send + 'static,
+            LocalData: Default + Send + 'static,
 {
     pub cluster_capacity: u32,
     pub run_handle: Arc<Mutex<bool>>,
-    pub clusters: ClusterPool<PoolItem>,
-    pub parameters: Arc<Mutex<Parameters>>,
+    pub clusters: ClusterPool<PoolItem, SharedData, LocalData>,
+    pub shared_data: Arc<Mutex<SharedData>>,
 }
 
-impl<PoolItem, Parameters> ThreadPool<PoolItem, Parameters>
+impl<PoolItem, SharedData, LocalData> ThreadPool<PoolItem, SharedData, LocalData>
     where   PoolItem: Default + Clone + Send +'static, 
-            Parameters: Send + 'static
+            SharedData: Send + 'static,
+            LocalData: Default + Send + 'static,
 {
-    pub fn new(cluster_count: u8, cluster_size: u32, parameters: Parameters) -> Self {
+    pub fn new(cluster_count: u8, cluster_size: u32, shared_data: SharedData) -> Self {
+        let shared_data = Arc::new(Mutex::new(shared_data));
+
         ThreadPool { 
             cluster_capacity: cluster_size,
             run_handle: Arc::new(Mutex::new(false)),
-            clusters: ClusterPool::new(cluster_count, cluster_size),
-            parameters: Arc::new(Mutex::new(parameters)),
+            clusters: ClusterPool::new(cluster_count, cluster_size, &shared_data),
+            shared_data,
         }
     }
 
-    pub fn clusters(&mut self) -> &mut ClusterPool<PoolItem> {
+    pub fn clusters(&mut self) -> &mut ClusterPool<PoolItem, SharedData, LocalData> {
         &mut self.clusters
-    }
-
-    pub fn parameters(&self) -> Arc<Mutex<Parameters>> {
-        Arc::clone(&self.parameters)
     }
 
     pub fn start (
         &mut self, 
-        setup: SetupHandler<PoolItem, Parameters>, 
-        opperation: OpperationHandler<PoolItem, Parameters>,
+        setup: ThreadCallbackHandler<PoolItem, SharedData, LocalData>, 
+        opperation: ThreadCallbackHandler<PoolItem, SharedData, LocalData>,
     ) 
         where   PoolItem: Default + Clone + Send +'static,
-                Parameters: Send + 'static,
+                SharedData: Send + 'static,
+                LocalData: Default + Send + 'static,
     {
         {
             let handle = Arc::clone(&self.run_handle);
@@ -62,28 +74,35 @@ impl<PoolItem, Parameters> ThreadPool<PoolItem, Parameters>
             *running = true;
         }
 
-        let clusters = &self.clusters;
+        
 
-        for i in 0..clusters.len() {
+        for i in 0..self.clusters.len() {
             let run_handle = Arc::clone(&self.run_handle);
-            let param_handle = Arc::clone(&self.parameters);
-            let mut clusters = self.clusters.clone();
+            //let clusters = self.clusters;
+            let thread_id = ThreadIndex(i);
+            let cluster_handle = self.clusters.arc_clone_cluster(&thread_id);
+            
 
             thread::spawn(move || {
+                
                 {
-                    (setup)(
-                        &mut *clusters.arc_cluster(i).lock().unwrap(), 
-                        &mut *param_handle.lock().unwrap()
-                    );
+                    let mut s_cluster = cluster_handle.lock().unwrap();
+                    (setup)(&mut s_cluster); //, &mut clusters);  
+                    //drop(s_cluster);
                 }
-
-                'active: loop {
-                    {
-                        if !*run_handle.lock().unwrap() { break 'active; }
-                    } {
-                        (opperation)(i, &mut clusters, &mut *param_handle.lock().unwrap());
+                {
+                    let mut u_cluster = cluster_handle.lock().unwrap();
+                    
+                    'active: loop {
+                        {
+                            if !*run_handle.lock().unwrap() { break 'active; }
+                        } {
+                            (opperation)(&mut u_cluster); //, &mut clusters);
+                        }
                     }
+                    //drop(u_cluster);
                 }
+                //drop(cluster_handle);
             });
         }
     }

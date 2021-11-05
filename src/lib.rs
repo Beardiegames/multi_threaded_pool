@@ -1,12 +1,9 @@
-use std::{
-    sync::{Arc, Mutex}, 
-    thread::{self}
-};
+use std::{sync::{Arc, Mutex}, thread::{self}, time::{Duration, SystemTime}};
 
 mod tests;
+
 mod clusters;
 pub use clusters::{ClusterPool, Cluster};
-
 
 pub struct ThreadIndex(usize);
 
@@ -14,17 +11,13 @@ impl ThreadIndex {
     pub fn value(&self) -> &usize { &self.0 }
 }
 
-pub type ThreadCallbackHandler<PoolItem, SharedData, LocalData> = fn(
-    &mut Cluster<PoolItem, SharedData, LocalData>, 
-    //&mut ClusterPool<PoolItem, SharedData, LocalData>
+pub type ThreadSetupHandler<PoolItem, SharedData, LocalData> = fn(
+    &mut Cluster<PoolItem, SharedData, LocalData>,
 );
-
-// pub type OpperationHandler<PoolItem, SharedData, LocalData> = 
-//     fn(&mut Cluster<PoolItem, SharedData, LocalData>);
-
-// pub type SetupHandler<PoolItem, SharedData, LocalData> 
-//     = fn(&mut Cluster<PoolItem, SharedData, LocalData>);
-
+pub type ThreadUpdateHandler<PoolItem, SharedData, LocalData> = fn(
+    &mut Cluster<PoolItem, SharedData, LocalData>,
+    &f32,
+);
 
 pub struct ThreadPool<PoolItem, SharedData, LocalData>
     where   PoolItem: Default + Clone + Send +'static, 
@@ -59,8 +52,8 @@ impl<PoolItem, SharedData, LocalData> ThreadPool<PoolItem, SharedData, LocalData
 
     pub fn start (
         &mut self, 
-        setup: ThreadCallbackHandler<PoolItem, SharedData, LocalData>, 
-        opperation: ThreadCallbackHandler<PoolItem, SharedData, LocalData>,
+        setup: ThreadSetupHandler<PoolItem, SharedData, LocalData>, 
+        opperation: ThreadUpdateHandler<PoolItem, SharedData, LocalData>,
     ) 
         where   PoolItem: Default + Clone + Send +'static,
                 SharedData: Send + 'static,
@@ -74,35 +67,31 @@ impl<PoolItem, SharedData, LocalData> ThreadPool<PoolItem, SharedData, LocalData
             *running = true;
         }
 
-        
-
         for i in 0..self.clusters.len() {
             let run_handle = Arc::clone(&self.run_handle);
-            //let clusters = self.clusters;
             let thread_id = ThreadIndex(i);
             let cluster_handle = self.clusters.arc_clone_cluster(&thread_id);
             
-
             thread::spawn(move || {
-                
+                let mut play_time = SystemTime::now();
+                let mut delta_time = 0.0;
                 {
                     let mut s_cluster = cluster_handle.lock().unwrap();
-                    (setup)(&mut s_cluster); //, &mut clusters);  
-                    //drop(s_cluster);
+                    (setup)(&mut s_cluster);
                 }
                 {
                     let mut u_cluster = cluster_handle.lock().unwrap();
                     
                     'active: loop {
+                        delta_time = play_time.elapsed().unwrap().as_millis() as f32 * 0.001;
+                        play_time = SystemTime::now();
                         {
                             if !*run_handle.lock().unwrap() { break 'active; }
                         } {
-                            (opperation)(&mut u_cluster); //, &mut clusters);
+                            (opperation)(&mut u_cluster, &delta_time);
                         }
                     }
-                    //drop(u_cluster);
                 }
-                //drop(cluster_handle);
             });
         }
     }

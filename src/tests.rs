@@ -23,7 +23,7 @@ fn start_stop_threads() {
     
     thread_pool.start(
         |_c|{}, 
-        |_c|{}
+        |_c, _dt|{}
     );
     thread::sleep(Duration::from_millis(10));
     assert!(*thread_pool.run_handle.lock().unwrap());
@@ -34,14 +34,14 @@ fn start_stop_threads() {
 
     thread_pool.start(
         |_c|{}, 
-        |_c|{}
+        |_c, _dt|{}
     );
     thread::sleep(Duration::from_millis(10));
     assert!(*thread_pool.run_handle.lock().unwrap());
 
     thread_pool.start(
         |_c|{}, 
-        |_c|{}
+        |_c, _dt|{}
     );
     thread::sleep(Duration::from_millis(10));
     assert!(*thread_pool.run_handle.lock().unwrap());
@@ -69,7 +69,7 @@ fn run_thread_handlers_are_called() {
         |c|{ 
             c.access_shared_data(|d| d.setup_called = true);
         }, 
-        |c|{ 
+        |c, _dt|{ 
             c.access_shared_data(|d| d.opperation_called = true);
         }
     );
@@ -103,7 +103,7 @@ fn a_cluster_can_access_shared_and_local_data () {
 
     thread_pool.start(
         |_c|{}, 
-        |_c|{ 
+        |_c, _dt|{ 
             _c.local_data += 1;
             _c.access_shared_data(|d| *d += 1);
         },
@@ -146,6 +146,39 @@ fn a_cluster_can_access_shared_and_local_data () {
     );
 
     assert_eq!(total_updates, cluster_updates.0 + cluster_updates.1);
+}
+
+#[test]
+fn a_thread_tracks_opperation_update_time() {
+    let mut thread_pool = ThreadPool::<PoolObject, usize, (usize, f32)>::new(1, 5_000_000, 0);
+
+    thread_pool.start(
+        |_c|{
+            thread::sleep(Duration::from_millis(10));
+        }, 
+        |_c, _dt|{ 
+            _c.local_data.0 += 1;
+            _c.local_data.1 += _dt;
+            println!("num updates = {}, update time = {}, total time = {}", _c.local_data.0, _dt, _c.local_data.1);
+            thread::sleep(Duration::from_millis(10));
+        },
+    );
+
+    thread::sleep(Duration::from_millis(100));
+    thread_pool.stop();
+
+    let cluster_handle = thread_pool.clusters()
+        .arc_clone_cluster(&ThreadIndex(0));
+    let cluster = cluster_handle.lock().unwrap();
+    
+    println!("num updates = {}, total update time = {}, partial update time = {}",
+        cluster.local_data.0,
+        cluster.local_data.1,
+        cluster.local_data.1 / cluster.local_data.0 as f32,
+    );
+
+    assert!(cluster.local_data.1 / cluster.local_data.0 as f32 >= 0.01);
+    assert!(cluster.local_data.1 / cluster.local_data.0 as f32 <= 0.011);
 }
 
 #[test]

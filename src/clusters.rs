@@ -2,12 +2,11 @@ use std::{
     sync::{Arc, Mutex}
 };
 
-use super::ThreadIndex;
+use crate::ThreadIndex;
 
 pub type ClusterIterHandler<PoolItem, LocalData> = fn(&usize, &mut Vec<PoolItem>, &mut LocalData);
 
 
-//#[derive(Clone)]
 pub struct Cluster<PoolItem, SharedData, LocalData> 
     where   PoolItem: Default + Clone + Send,
             LocalData: Default,
@@ -46,13 +45,9 @@ impl<PoolItem, SharedData, LocalData> Cluster<PoolItem, SharedData, LocalData>
     }
 
     pub fn access_shared_data(&mut self, update_data_handler: fn(&mut SharedData)) {
-        //let data_handle = Arc::clone(&self.shared_data);
-        //{
-            let data = &mut *self.shared_data.lock().unwrap();
-            update_data_handler(data);
-            //drop(data);
-        //}
-        //drop(data_handle);
+
+        let data = &mut *self.shared_data.lock().unwrap();
+        update_data_handler(data);
     }
 
     pub fn fetch(&mut self, pointer: usize) -> &mut PoolItem {
@@ -115,17 +110,6 @@ impl<I, S, L> ClusterPool<I, S, L>
     pub(crate) fn arc_clone_cluster(&self, on_thread: &ThreadIndex) -> Arc<Mutex<Cluster<I, S, L>>> {
         Arc::clone(&self.0[*on_thread.value()])
     }
-
-    // pub fn access_cluster(&mut self, on_thread: &ThreadIndex, update_cluster_handler: fn(&mut Cluster<I, S, L>)) {
-    //     let cluster_handle = Arc::clone(&self.0[*on_thread.value()]);
-    //     {
-    //         let mut cluster = cluster_handle.lock().unwrap();
-    //         update_cluster_handler(&mut cluster);
-    //         drop(cluster);
-    //     }
-    //     drop(cluster_handle);
-    // }
-
 
     pub fn len(&self) -> usize { self.0.len() }
 }

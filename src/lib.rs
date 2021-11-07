@@ -3,7 +3,7 @@ use std::{sync::{Arc, Mutex}, thread::{self}, time::{Duration, SystemTime}};
 mod tests;
 
 mod clusters;
-pub use clusters::{ClusterPool, Cluster};
+pub use clusters::{ClusterPool, Cluster, Spawn};
 
 pub struct ThreadIndex(usize);
 

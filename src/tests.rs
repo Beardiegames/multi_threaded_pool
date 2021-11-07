@@ -4,7 +4,7 @@ use std::{
     thread::{self}
 };
 
-use super::{ThreadIndex, ThreadPool, Cluster};
+use super::{ThreadIndex, ThreadPool, Cluster, Spawn};
 
 
 #[cfg(test)]
@@ -83,7 +83,7 @@ fn run_thread_handlers_are_called() {
 }
 
 #[test]
-fn a_cluster_can_access_shared_and_local_data () {
+fn shared_and_local_data_can_be_accessed_within_an_opperation () {
 
     let mut thread_pool = ThreadPool::<PoolObject, usize, usize>::new(2, 5_000_000, 0);
 
@@ -92,11 +92,11 @@ fn a_cluster_can_access_shared_and_local_data () {
         let cluster_1_handle = thread_pool.clusters().arc_clone_cluster(&ThreadIndex(1));        
         {
             let cluster_0 = &mut *cluster_0_handle.lock().unwrap();
-            assert_eq!(cluster_0.spawn_count, 0);
+            assert_eq!(cluster_0.count(), 0);
             drop(cluster_0);
 
             let cluster_1 = &mut *cluster_1_handle.lock().unwrap();  
-            assert_eq!(cluster_1.spawn_count, 0);
+            assert_eq!(cluster_1.count(), 0);
             drop(cluster_1);
         }
     }
@@ -185,47 +185,74 @@ fn a_thread_tracks_opperation_update_time() {
 fn clusters_can_spawn_objects() {
     let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
     
-    assert_eq!(cluster.spawn_count, 0);
-    cluster.spawn();
-    assert_eq!(cluster.spawn_count, 1);
-    cluster.spawn();
-    assert_eq!(cluster.spawn_count, 2);
-    cluster.spawn();
-    assert_eq!(cluster.spawn_count, 2);
+    assert_eq!(cluster.count(), 0);
+
+    let spawn_1 = cluster.spawn();
+    assert_eq!(spawn_1, Some(Spawn{ id: 0, self_index: 0, pool_index: 0}));
+    assert_eq!(cluster.count(), 1);
+
+    let spawn_2 = cluster.spawn();
+    assert_eq!(spawn_2, Some(Spawn{ id: 1, self_index: 1, pool_index: 1}));
+    assert_eq!(cluster.count(), 2);
+
+    let spawn_3 = cluster.spawn();
+    assert_eq!(spawn_3, None);
+    assert_eq!(cluster.count(), 2);
 }
 
 #[test]
 fn clusters_can_destroy_objects() {
     let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
     
-    cluster.spawn();
-    cluster.spawn();
-    assert_eq!(cluster.spawn_count, 2);
-    cluster.destroy(0);
-    assert_eq!(cluster.spawn_count, 1);
-    cluster.destroy(1);
-    assert_eq!(cluster.spawn_count, 0);
-    cluster.destroy(0);
-    assert_eq!(cluster.spawn_count, 0);
+    let spawn_1 = cluster.spawn().unwrap();
+    let spawn_2 = cluster.spawn().unwrap();
+    assert_eq!(cluster.count(), 2);
+
+    cluster.destroy(spawn_2);
+    assert_eq!(cluster.count(), 1);
+
+    cluster.destroy(spawn_1.clone());
+    assert_eq!(cluster.count(), 0);
+
+    let spawn_3 = cluster.spawn().unwrap();
+    assert_ne!(spawn_1, spawn_3);
+    assert_eq!(spawn_3, Spawn{ id:2, self_index:0, pool_index:0 });
 }
 
 #[test]
 fn clusters_can_iter_over_objects() {
     let mut cluster = Cluster::<bool, bool, _>::new(0, 2, Arc::new(Mutex::new(false)));
     
-    cluster.spawn();
-    cluster.spawn();
+    let spawn_1 = cluster.spawn().unwrap();
+    let spawn_2 = cluster.spawn().unwrap();
     
-    assert_eq!(*cluster.fetch(0), false);
-    assert_eq!(*cluster.fetch(1), false);
+    assert_eq!(cluster.fetch(&spawn_1), Some(&mut false));
+    assert_eq!(cluster.fetch(&spawn_2), Some(&mut false));
 
-    cluster.iter_spawns(
-        |target, pool, _params|{
-            pool[*target] = true;
+    cluster.iter(
+        |pool, _params|{
+            *pool.target() = true;
         },
         &mut (),
     );
 
-    assert_eq!(*cluster.fetch(0), true);
-    assert_eq!(*cluster.fetch(1), true);
+    assert_eq!(cluster.fetch(&spawn_1), Some(&mut true));
+    assert_eq!(cluster.fetch(&spawn_2), Some(&mut true));
+}
+
+#[test]
+fn clusters_have_factories_for_spawning_specific_types() {
+    let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
+    cluster.set_build_factory("t-factory", |x|{
+        println!("factory called");
+        *x = true;
+    });
+    
+    let spawn_1 = cluster.spawn().unwrap();
+    assert_eq!(cluster.fetch(&spawn_1), Some(&mut false));
+
+    let spawn_2 = cluster.build("t-factory").unwrap();
+
+    assert_eq!(cluster.fetch(&spawn_1), Some(&mut false));
+    assert_eq!(cluster.fetch(&spawn_2), Some(&mut true));
 }

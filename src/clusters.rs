@@ -74,11 +74,11 @@ where   ItemType: Default + Clone + Send,
         self.pool.destroy(spawn)
     }
 
-    pub fn iter(&mut self, handler: ClusterIterHandler<ItemType, LocalData>, local_data: &mut LocalData) {
+    pub fn iter(&mut self, handler: ClusterIterHandler<ItemType, LocalData>) {
         self.pool.iter_position = 0;
 
         while &self.pool.iter_position < &self.pool.active_pool_count {
-            handler(&mut self.pool, local_data);
+            handler(&mut self.pool, &mut self.local_data);
             self.pool.iter_position += 1;
         }
     }

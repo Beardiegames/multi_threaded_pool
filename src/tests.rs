@@ -6,6 +6,8 @@ use std::{
     thread::{self}
 };
 
+use crate::ObjectPool;
+
 #[allow(unused)]
 use super::{ThreadIndex, ThreadPool, Cluster, Spawn};
 
@@ -222,7 +224,7 @@ fn clusters_can_destroy_objects() {
 
 #[test]
 fn clusters_can_iter_over_objects() {
-    let mut cluster = Cluster::<bool, bool, _>::new(0, 2, Arc::new(Mutex::new(false)));
+    let mut cluster = Cluster::<bool, bool, ()>::new(0, 2, Arc::new(Mutex::new(false)));
     
     let spawn_1 = cluster.spawn().unwrap();
     let spawn_2 = cluster.spawn().unwrap();
@@ -230,12 +232,7 @@ fn clusters_can_iter_over_objects() {
     assert_eq!(cluster.fetch(&spawn_1), Some(&mut false));
     assert_eq!(cluster.fetch(&spawn_2), Some(&mut false));
 
-    cluster.iter(
-        |pool, _params|{
-            *pool.target() = true;
-        },
-        &mut (),
-    );
+    cluster.iter(|pool, _params|{ *pool.target() = true; });
 
     assert_eq!(cluster.fetch(&spawn_1), Some(&mut true));
     assert_eq!(cluster.fetch(&spawn_2), Some(&mut true));

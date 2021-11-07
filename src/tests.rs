@@ -1,17 +1,18 @@
+#[cfg(test)]
+
 use std::{
     time::Duration,
     sync::{Arc, Mutex}, 
     thread::{self}
 };
 
+#[allow(unused)]
 use super::{ThreadIndex, ThreadPool, Cluster, Spawn};
-
-
-#[cfg(test)]
 
 #[derive(Default, Clone)]
 struct PoolObject(bool);
 
+#[allow(unused)]
 struct Params {
     pub setup_called: bool,
     pub opperation_called: bool,
@@ -115,7 +116,7 @@ fn shared_and_local_data_can_be_accessed_within_an_opperation () {
 
     
 
-    let mut total_updates: usize = 666;
+    let total_updates: usize;
     let mut cluster_updates: (usize, usize) = (999,999);
     {
         let data_handle = &thread_pool.shared_data;

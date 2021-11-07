@@ -1,9 +1,11 @@
-use std::{sync::{Arc, Mutex}, thread::{self}, time::{Duration, SystemTime}};
+use std::{sync::{Arc, Mutex}, thread::{self}, time::{SystemTime}};
 
 mod tests;
-
+mod pooling;
 mod clusters;
-pub use clusters::{ClusterPool, Cluster, Spawn};
+
+pub use pooling::{ Spawn };
+pub use clusters::{ ClusterPool, Cluster };
 
 pub struct ThreadIndex(usize);
 
@@ -74,7 +76,7 @@ impl<PoolItem, SharedData, LocalData> ThreadPool<PoolItem, SharedData, LocalData
             
             thread::spawn(move || {
                 let mut play_time = SystemTime::now();
-                let mut delta_time = 0.0;
+                let mut delta_time;
                 {
                     let mut s_cluster = cluster_handle.lock().unwrap();
                     (setup)(&mut s_cluster);

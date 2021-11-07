@@ -4,7 +4,7 @@ mod tests;
 mod pooling;
 mod clusters;
 
-pub use pooling::{ Spawn };
+pub use pooling::{ Spawn, ObjectPool };
 pub use clusters::{ ClusterPool, Cluster };
 
 pub struct ThreadIndex(usize);

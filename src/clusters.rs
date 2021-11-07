@@ -10,7 +10,7 @@ pub struct Cluster<ItemType, SharedData, LocalData>
 where   ItemType: Default + Clone + Send,
         LocalData: Default,
 {
-    pub thread_id: ThreadIndex,  
+    pub(crate) thread_id: ThreadIndex,  
 
     pub(crate) pool: ObjectPool<ItemType>,
     pub(crate) factories: Vec<(&'static str, fn(&mut ItemType))>,
@@ -31,6 +31,8 @@ where   ItemType: Default + Clone + Send,
             shared_data, local_data: LocalData::default(),
          }
     }
+
+    pub fn thread_id(&self) -> &ThreadIndex { &self.thread_id }
 
     pub fn access_shared_data(&mut self, update_data_handler: fn(&mut SharedData)) {
 

@@ -89,7 +89,7 @@ fn local_data_can_be_accessed_on_all_threads () {
     thread_pool.start(
         |_c|{}, 
         |_c, _dt|{ 
-            _c.shared.write(_c.thread_id,|d| d.0 += 1);
+            _c.shared.write(*_c.thread_id(),|d| d.0 += 1);
             _c.shared.write(0,|d| d.1 += 1);
         },
     );
@@ -125,14 +125,14 @@ fn a_thread_tracks_opperation_update_time() {
         |_c, _dt| {    
             println!("opperation called, with dt = {}", _dt);
 
-            _c.shared.catch(_c.thread_id, 
+            _c.shared.catch(*_c.thread_id(), 
                 _dt, 
                 |v, d| {
                     d.0 += 1;
                     d.1 = d.1 + *v;
                 }
             );
-            let unlinked_data = _c.shared.unlinked(_c.thread_id);
+            let unlinked_data = _c.shared.unlinked(*_c.thread_id());
             println!("thread: {}, num updates = {}, update time = {}, total time = {}",
                 _c.thread_id,
                 unlinked_data.0,

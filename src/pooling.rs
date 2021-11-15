@@ -14,6 +14,8 @@ struct ItemRef {
 pub struct ObjectPool<ItemType> 
 where   ItemType: Default + Clone + Send
 {
+    on_thread: usize,
+
     pub(crate) items: Vec<ItemType>,
     pub(crate) active_pool_count: usize,
     pub(crate) spawn_id_counter: u128,
@@ -27,7 +29,7 @@ where   ItemType: Default + Clone + Send
 impl<ItemType> ObjectPool<ItemType> 
 where   ItemType: Default + Clone + Send
 {
-    pub fn new(capacity: u32) -> Self {
+    pub fn new(on_thread: usize, capacity: u32) -> Self {
         let mut items = Vec::with_capacity(capacity as usize);
         let mut free_pool_items = Vec::with_capacity(capacity as usize);
         let mut all_spawns = Vec::with_capacity(capacity as usize);
@@ -40,11 +42,14 @@ where   ItemType: Default + Clone + Send
         }
 
         ObjectPool { 
+            on_thread,
             items, all_spawns,
             active_pool_count: 0, spawn_id_counter: 0, iter_position: 0,
             free_pool_items, active_pool_items,
          }
     }
+
+    pub fn thread_id(&self) -> &usize { &self.on_thread }
 
     pub fn target(&mut self) -> &mut ItemType {
         &mut self.items[self.active_pool_items[self.iter_position].pool_index]

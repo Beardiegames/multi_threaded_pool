@@ -36,7 +36,7 @@ where   ItemType: Default + Clone + Send,
 
         Cluster { 
             thread_id: id, //ThreadIndex(id), 
-            pool: ObjectPool::new(capacity),
+            pool: ObjectPool::new(id, capacity),
             factories: Vec::new(),
             shared: shared_data_clone,
             //local_data: LocalData::default(),

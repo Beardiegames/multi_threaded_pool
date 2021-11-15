@@ -1,20 +1,23 @@
 #[cfg(test)]
 
+#[warn(unused_imports)]
 use std::{
     time::Duration,
     sync::{Arc, Mutex}, 
     thread::{self}
 };
 
-use crate::ObjectPool;
+#[warn(unused_imports)]
+use crate::{DataCell, ObjectPool, DataManager};
 
 #[allow(unused)]
-use super::{ThreadIndex, ThreadPool, Cluster, Spawn};
+use super::{ThreadPool, Cluster, Spawn};
 
 #[derive(Default, Clone)]
 struct PoolObject(bool);
 
 #[allow(unused)]
+#[derive(Default, Clone, Debug)]
 struct Params {
     pub setup_called: bool,
     pub opperation_called: bool,
@@ -22,7 +25,7 @@ struct Params {
 
 #[test]
 fn start_stop_threads() {
-    let mut thread_pool = ThreadPool::<PoolObject, _, bool>::new(10, 10, ());
+    let mut thread_pool = ThreadPool::<PoolObject, bool>::new(10, 10);
     
     thread_pool.start(
         |_c|{}, 
@@ -57,58 +60,37 @@ fn start_stop_threads() {
 #[test]
 fn run_thread_handlers_are_called() {
     
-    let params = Params {
-        setup_called: false,
-        opperation_called: false,
-    };
+    let mut thread_pool = ThreadPool::<PoolObject, Params>::new(1, 2);
 
-    let mut thread_pool = ThreadPool::<PoolObject, Params, bool>
-        ::new(1, 2, params);
-
-    assert_eq!((*thread_pool.shared_data.lock().unwrap()).setup_called, false);
-    assert_eq!((*thread_pool.shared_data.lock().unwrap()).opperation_called, false);
+    assert_eq!(thread_pool.shared.unlinked(0).setup_called, false);
+    assert_eq!(thread_pool.shared.unlinked(0).opperation_called, false);
     
     thread_pool.start(
         |c|{ 
-            c.access_shared_data(|d| d.setup_called = true);
+            c.shared.write(0, |d| d.setup_called = true);
         }, 
         |c, _dt|{ 
-            c.access_shared_data(|d| d.opperation_called = true);
+            c.shared.write(0, |d| d.opperation_called = true);
         }
     );
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(1));
     
     thread_pool.stop();
     thread::sleep(Duration::from_millis(10));
-    assert_eq!((*thread_pool.shared_data.lock().unwrap()).setup_called, true);
-    assert_eq!((*thread_pool.shared_data.lock().unwrap()).opperation_called, true);
-
+    assert_eq!(thread_pool.shared.unlinked(0).setup_called, true);
+    assert_eq!(thread_pool.shared.unlinked(0).opperation_called, true);
 }
 
 #[test]
-fn shared_and_local_data_can_be_accessed_within_an_opperation () {
+fn local_data_can_be_accessed_on_all_threads () {
 
-    let mut thread_pool = ThreadPool::<PoolObject, usize, usize>::new(2, 5_000_000, 0);
-
-    {
-        let cluster_0_handle = thread_pool.clusters().arc_clone_cluster(&ThreadIndex(0));
-        let cluster_1_handle = thread_pool.clusters().arc_clone_cluster(&ThreadIndex(1));        
-        {
-            let cluster_0 = &mut *cluster_0_handle.lock().unwrap();
-            assert_eq!(cluster_0.count(), 0);
-            drop(cluster_0);
-
-            let cluster_1 = &mut *cluster_1_handle.lock().unwrap();  
-            assert_eq!(cluster_1.count(), 0);
-            drop(cluster_1);
-        }
-    }
+    let mut thread_pool = ThreadPool::<PoolObject, (usize, usize)>::new(2, 5_000_000);
 
     thread_pool.start(
         |_c|{}, 
         |_c, _dt|{ 
-            _c.local_data += 1;
-            _c.access_shared_data(|d| *d += 1);
+            _c.shared.write(_c.thread_id,|d| d.0 += 1);
+            _c.shared.write(0,|d| d.1 += 1);
         },
     );
     
@@ -118,31 +100,11 @@ fn shared_and_local_data_can_be_accessed_within_an_opperation () {
 
     
 
-    let total_updates: usize;
-    let mut cluster_updates: (usize, usize) = (999,999);
-    {
-        let data_handle = &thread_pool.shared_data;
-        total_updates = *data_handle.lock().unwrap();
-        drop(data_handle);
-        
-    } 
-    {
-        let cluster_handle = thread_pool.clusters()
-            .arc_clone_cluster(&ThreadIndex(0));
-        let cluster = cluster_handle.lock().unwrap();
-        cluster_updates.0 = cluster.local_data;
-        drop(cluster);
-        drop(cluster_handle);
-    }
-    //panic!("got here!");
-    {
-        let cluster_handle = thread_pool.clusters()
-            .arc_clone_cluster(&ThreadIndex(1));
-        let cluster = cluster_handle.lock().unwrap();
-        cluster_updates.1 = cluster.local_data;
-        drop(cluster);
-        drop(cluster_handle);
-    } 
+    let total_updates = thread_pool.shared.unlinked(0).1;
+    let mut cluster_updates: (usize, usize) = (
+        thread_pool.shared.unlinked(0).0,
+        thread_pool.shared.unlinked(1).0
+    );
 
     println!("total number of updated: thread-0 ({}) + thread-1 ({}) should be {} per second",
         cluster_updates.0, cluster_updates.1, total_updates
@@ -153,40 +115,56 @@ fn shared_and_local_data_can_be_accessed_within_an_opperation () {
 
 #[test]
 fn a_thread_tracks_opperation_update_time() {
-    let mut thread_pool = ThreadPool::<PoolObject, usize, (usize, f32)>::new(1, 5_000_000, 0);
+    let mut thread_pool = ThreadPool::<PoolObject, (usize, f32)>::new(1, 5_000_000);
 
     thread_pool.start(
         |_c|{
+            println!("setup called");
             thread::sleep(Duration::from_millis(10));
         }, 
-        |_c, _dt|{ 
-            _c.local_data.0 += 1;
-            _c.local_data.1 += _dt;
-            println!("num updates = {}, update time = {}, total time = {}", _c.local_data.0, _dt, _c.local_data.1);
+        |_c, _dt| {    
+            println!("opperation called, with dt = {}", _dt);
+
+            _c.shared.catch(_c.thread_id, 
+                _dt, 
+                |v, d| {
+                    d.0 += 1;
+                    d.1 = d.1 + *v;
+                }
+            );
+            let unlinked_data = _c.shared.unlinked(_c.thread_id);
+            println!("thread: {}, num updates = {}, update time = {}, total time = {}",
+                _c.thread_id,
+                unlinked_data.0,
+                _dt,
+                unlinked_data.1
+            );
             thread::sleep(Duration::from_millis(10));
         },
     );
 
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(1000));
     thread_pool.stop();
 
-    let cluster_handle = thread_pool.clusters()
-        .arc_clone_cluster(&ThreadIndex(0));
-    let cluster = cluster_handle.lock().unwrap();
+
+    let unlinked_data = thread_pool.shared.unlinked(0);
+    let dt_millis = (unlinked_data.1 * 1000.0).ceil() as usize / unlinked_data.0;
     
+    assert!(unlinked_data.0 > 0);
+
     println!("num updates = {}, total update time = {}, partial update time = {}",
-        cluster.local_data.0,
-        cluster.local_data.1,
-        cluster.local_data.1 / cluster.local_data.0 as f32,
+        unlinked_data.0,
+        unlinked_data.1,
+        dt_millis,
     );
 
-    assert!(cluster.local_data.1 / cluster.local_data.0 as f32 >= 0.01);
-    assert!(cluster.local_data.1 / cluster.local_data.0 as f32 <= 0.011);
+    assert!(dt_millis >= 10);
+    assert!(dt_millis <= 11);
 }
 
 #[test]
 fn clusters_can_spawn_objects() {
-    let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
+    let mut cluster = Cluster::<bool, bool>::new(0, 2, DataManager::new(1));
     
     assert_eq!(cluster.count(), 0);
 
@@ -205,7 +183,7 @@ fn clusters_can_spawn_objects() {
 
 #[test]
 fn clusters_can_destroy_objects() {
-    let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
+    let mut cluster = Cluster::<bool, bool>::new(0, 2, DataManager::new(1));
     
     let spawn_1 = cluster.spawn().unwrap();
     let spawn_2 = cluster.spawn().unwrap();
@@ -224,7 +202,7 @@ fn clusters_can_destroy_objects() {
 
 #[test]
 fn clusters_can_iter_over_objects() {
-    let mut cluster = Cluster::<bool, bool, ()>::new(0, 2, Arc::new(Mutex::new(false)));
+    let mut cluster = Cluster::<bool, bool>::new(0, 2, DataManager::new(1));
     
     let spawn_1 = cluster.spawn().unwrap();
     let spawn_2 = cluster.spawn().unwrap();
@@ -240,7 +218,7 @@ fn clusters_can_iter_over_objects() {
 
 #[test]
 fn clusters_have_factories_for_spawning_specific_types() {
-    let mut cluster = Cluster::<bool, bool, bool>::new(0, 2, Arc::new(Mutex::new(false)));
+    let mut cluster = Cluster::<bool, bool>::new(0, 2, DataManager::new(1));
     cluster.set_build_factory("t-factory", |x|{
         println!("factory called");
         *x = true;

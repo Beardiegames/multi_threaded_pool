@@ -24,6 +24,16 @@ impl<LocalData: Default + Clone + Debug> DataManager<LocalData> {
         drop(handle);
     }
 
+    pub fn write_all(&mut self, data_handler: fn(&mut LocalData)) {
+        let mut i =  self.data.len();
+        while i > 0 {
+            i -= 1;
+            let handle = &mut *self.data[i].lock().unwrap();
+            data_handler(&mut handle.0);
+            drop(handle);
+        }
+    }
+
     pub fn catch<T>(&mut self, thread_id: usize, value: &T, data_handler: fn(&T, &mut LocalData)) {
 
         let handle = &mut *self.data[thread_id].lock().unwrap();
@@ -31,11 +41,31 @@ impl<LocalData: Default + Clone + Debug> DataManager<LocalData> {
         drop(handle);
     }
 
+    pub fn catch_all<T>(&mut self, value: &T, data_handler: fn(&T, &mut LocalData)) {
+        let mut i =  self.data.len();
+        while i > 0 {
+            i -= 1;
+            let handle = &mut *self.data[i].lock().unwrap();
+            data_handler(value, &mut handle.0);
+            drop(handle);
+        }
+    }
+
     pub fn catch_mut<T>(&mut self, thread_id: usize, value: &mut T, data_handler: fn(&mut T, &mut LocalData)) {
 
         let handle = &mut *self.data[thread_id].lock().unwrap();
         data_handler(value, &mut handle.0);
         drop(handle);
+    }
+
+    pub fn catch_mut_all<T>(&mut self, value: &mut T, data_handler: fn(&mut T, &mut LocalData)) {
+        let mut i =  self.data.len();
+        while i > 0 {
+            i -= 1;
+            let handle = &mut *self.data[i].lock().unwrap();
+            data_handler(value, &mut handle.0);
+            drop(handle);
+        }
     }
 
     pub fn unlinked(&self, thread_id: usize) -> LocalData {

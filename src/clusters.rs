@@ -1,4 +1,7 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug, 
+    sync::{Arc, }// Mutex}
+};
 
 use crate::{Spawn, pooling::ObjectPool, shared::DataManager};
 
@@ -25,7 +28,7 @@ where   ItemType: Default + Clone + Send,
     pub(crate) factories: Vec<(&'static str, fn(&mut ItemType))>,
 
     pub shared: DataManager<LocalData>,
-    //pub local_data: LocalData,
+    //pub global: Arc<Mutex<GlobalData>>,
 }
 
 impl<ItemType, LocalData> Cluster<ItemType, LocalData> 
@@ -35,11 +38,11 @@ where   ItemType: Default + Clone + Send,
     pub fn new(id: usize, capacity: u32, shared_data_clone: DataManager<LocalData>) -> Self {
 
         Cluster { 
-            thread_id: id, //ThreadIndex(id), 
+            thread_id: id, 
             pool: ObjectPool::new(id, capacity),
             factories: Vec::new(),
             shared: shared_data_clone,
-            //local_data: LocalData::default(),
+            //global: global_data_ref,
          }
     }
 
